@@ -1,13 +1,14 @@
 # 🎬 MovieLens-32M 기반 영화 추천 시스템
 
-> **팀 프로젝트** | Azure Databricks 환경에서 대규모 데이터 처리 및 BERT4Rec 기반 순차적 추천 모델 개발
+> **6인 팀 프로젝트 (2주)** | Azure Databricks 환경에서 대규모 데이터 처리 및 BERT4Rec 기반 순차적 추천 모델 개발
 
 ---
 
 ## 📌 프로젝트 개요
 
-MovieLens-32M 및 IMDB 데이터셋을 활용하여 사용자의 영화 시청 이력 기반 순차적 추천 시스템을 구축한 팀 프로젝트입니다.  
-Apache Spark(Databricks)로 대용량 데이터를 처리하고, BERT4Rec 모델에 장르 임베딩을 결합한 커스텀 아키텍처를 개발하여 MLflow를 통해 서빙 환경에 배포했습니다.
+MovieLens-32M 및 IMDB 데이터셋을 활용하여 사용자의 영화 시청 이력 기반 순차적 추천 시스템을 구축한 6인 팀 프로젝트(2주)입니다.  
+Apache Spark(Databricks)로 대용량 데이터를 처리하고, BERT4Rec 모델에 장르 임베딩을 결합한 커스텀 아키텍처를 개발하였습니다.  
+본인은 **영화 추천 모델 고도화** 및 **MLOps 환경 구성**을 담당하여, NDCG@10 기준 **0.7689 → 0.8887(+15.6%)** 성능 향상과 MLflow 기반 배포 파이프라인 구축을 달성했습니다.
 
 ---
 
@@ -16,8 +17,8 @@ Apache Spark(Databricks)로 대용량 데이터를 처리하고, BERT4Rec 모델
 | 영역 | 내용 |
 |------|------|
 | **데이터 파이프라인** | PySpark를 활용한 Medallion Architecture 기반 데이터 처리 전과정 |
-| **추천 모델 개발** | BERT4Rec + 장르 임베딩 확장 모델 구현 및 학습 |
-| **모델 배포** | MLflow Model Registry 등록 및 추론 테스트 |
+| **추천 모델 고도화** | BERT4Rec + 장르 임베딩 확장 모델 구현 · 버그 수정 · Negative Sampling 개선으로 NDCG@10 15.6% 향상 |
+| **MLOps 파이프라인 구축** | MLflow Model Registry 등록 · 의존성 불일치 해결 · Flask 서비스 배포 |
 
 ---
 
@@ -138,14 +139,42 @@ Linear(18 → 36) → ReLU → Linear(36 → hidden_units)
 
 장르 시퀀스도 동일한 방식으로 변환하여 아이템-장르 일관성 유지
 
+### 데이터 전처리 및 학습 데이터 구성
+
+- **평점 필터링**: 평점 4.0 이상의 양질 상호작용 데이터만 학습에 활용
+- **시계열 분할**: 사용자별 시청 이력을 타임스탬프 기준으로 정렬 후 Train / Test 분할 적용
+
+### 성능 개선 과정
+
+기존 BERT4Rec 구현의 문제점을 발견하고 다음 두 가지 핵심 수정을 통해 추천 정확도를 크게 향상시켰습니다.
+
+**1. Output Layer 크기 버그 수정**
+- 출력 레이어의 크기 설정 오류를 디버깅하여 전체 아이템 어휘(vocabulary)에 대한 예측이 올바르게 이루어지도록 수정
+
+**2. Negative Sampling 로직 개선**
+- 기존: Negative Sample로 선택된 아이템의 장르를 무작위로 할당
+- 개선: 실제 대체 아이템의 장르 정보를 그대로 활용하여 아이템-장르 일관성 보장
+- 모델이 장르 임베딩을 의미 있게 학습할 수 있도록 개선
+
+### 성능 결과
+
+| 지표 | 개선 전 | 개선 후 | 변화율 |
+|------|---------|---------|--------|
+| **NDCG@10** | 0.7689 | 0.8887 | **+15.6%** |
+
 ---
 
 ## 🚀 3단계: MLflow 모델 관리
 
 ### 모델 등록 (`rertv4rec_model_mlflow_upload.ipynb`)
 - 학습된 BERT4Rec 모델을 `mlflow.pyfunc` 포맷으로 래핑
-- MLflow Model Registry에 `bert4rec_v4` 이름으로 등록
+- MLflow Model Registry에 `bert4rec_v4` 이름으로 등록하여 버전 관리 체계화
 - 아이템 인코더/디코더(`.pkl`) 포함하여 end-to-end 추론 가능한 형태로 패키징
+
+### 배포 환경 의존성 문제 해결
+- Databricks 서빙 환경과 학습 환경 간 **Python 버전 및 라이브러리 의존성 불일치**로 인한 배포 실패 발생
+- MLflow 로그 분석을 통해 충돌 패키지를 특정하고 `conda.yaml` / `requirements.txt` 수정으로 해결
+- 최종적으로 **Flask 기반 서비스에 모델을 성공적으로 탑재**하여 실시간 추천 API 제공
 
 ### 추론 테스트 (`mlflow_model_load_test.ipynb`)
 ```python
