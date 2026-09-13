@@ -1,211 +1,163 @@
-# 🎬 MovieLens-32M 기반 영화 추천 시스템
+# MovieLens 기반 BERT4Rec 영화 추천 서비스
 
-> **6인 팀 프로젝트 (2주)** | Azure Databricks 환경에서 대규모 데이터 처리 및 BERT4Rec 기반 순차적 추천 모델 개발
+> 사용자의 영화 선호 이력과 장르 정보를 활용해 영화 10개를 추천하고, Databricks Model Serving과 Flask 웹으로 연결한 팀 프로젝트입니다.
 
----
+## 1. 프로젝트 개요
 
-## 📌 프로젝트 개요
+많은 영화 중에서 사용자의 취향에 맞는 작품을 선택할 수 있도록, MovieLens의 평점 이력을 활용한 개인화 추천 서비스를 구현했습니다.
 
-MovieLens-32M 및 IMDB 데이터셋을 활용하여 사용자의 영화 시청 이력 기반 순차적 추천 시스템을 구축한 6인 팀 프로젝트(2주)입니다.  
-Apache Spark(Databricks)로 대용량 데이터를 처리하고, BERT4Rec 모델에 장르 임베딩을 결합한 커스텀 아키텍처를 개발하였습니다.  
-본인은 **영화 추천 모델 고도화** 및 **MLOps 환경 구성**을 담당하여, NDCG@10 기준 **0.7689 → 0.8887(+15.6%)** 성능 향상과 MLflow 기반 배포 파이프라인 구축을 달성했습니다.
+팀에서는 ALS, 군집화, 하이브리드, XGBoost, BERT 기반 추천 방식을 검토했고, 최종 웹 서비스에는 BERT4Rec 기반 모델을 연결했습니다.
 
----
+| 항목 | 내용 |
+|---|---|
+| 개발 기간 | 2025.05.26 ~ 2025.06.11 |
+| 팀 구성 | 6명 |
+| 본인 담당 | 주제·데이터 제안, Gold 데이터 설계, BERT4Rec 모델 수정·평가, MLflow 모델 등록 및 서비스 연동 참여 |
+| 개발 환경 | Azure Databricks, Unity Catalog, PyTorch, MLflow |
+| 공개 코드 | 발표 후 정리한 코드이며, 본인 구현은 `1dt048/`에 포함 |
 
-## 👤 본인 담당 역할
+## 2. 주요 기능
 
-| 영역 | 내용 |
-|------|------|
-| **데이터 파이프라인** | PySpark를 활용한 Medallion Architecture 기반 데이터 처리 전과정 |
-| **추천 모델 고도화** | BERT4Rec + 장르 임베딩 확장 모델 구현 · 버그 수정 · Negative Sampling 개선으로 NDCG@10 15.6% 향상 |
-| **MLOps 파이프라인 구축** | MLflow Model Registry 등록 · 의존성 불일치 해결 · Flask 서비스 배포 |
+| 기능 | 설명 |
+|---|---|
+| 선호 영화 입력 | 웹에서 검색·선택한 영화를 추천 모델의 입력으로 사용 |
+| 개인화 영화 추천 | 영화 이력과 장르 정보를 활용해 영화 10개 추천 |
+| 영화 정보 표시 | MovieLens와 TMDB의 ID를 연결해 한글 제목과 포스터 표시 |
+| 모델 API 연동 | Flask 서버에서 Databricks Model Serving Endpoint 호출 |
 
----
+## 3. 시스템 구성
 
-## 🗂️ 프로젝트 구조 (담당 파트)
+학습 데이터와 모델 파일은 Unity Catalog의 Table·Volume으로 관리하고, 학습한 모델을 MLflow에 등록하여 웹 서비스에서 호출할 수 있도록 구성했습니다.
 
-```
-📦 MS_DS_Project1
-├── 📓 데이터 처리.ipynb            # 데이터 파이프라인 (Bronze → Silver → Gold)
-└── 📁 1dt048/
-    ├── 📓 bert4rec-with-genres-embed.ipynb       # 커스텀 BERT4Rec 모델 학습
-    ├── 📓 rertv4rec_model_mlflow_upload.ipynb    # MLflow 모델 등록
-    └── 📓 mlflow_model_load_test.ipynb           # 모델 로드 및 추론 검증
-```
-
----
-
-## 🔧 기술 스택
-
-![Python](https://img.shields.io/badge/Python-3776AB?style=flat&logo=python&logoColor=white)
-![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=flat&logo=pytorch&logoColor=white)
-![Apache Spark](https://img.shields.io/badge/Apache_Spark-E25A1C?style=flat&logo=apachespark&logoColor=white)
-![MLflow](https://img.shields.io/badge/MLflow-0194E2?style=flat&logo=mlflow&logoColor=white)
-![Databricks](https://img.shields.io/badge/Databricks-FF3621?style=flat&logo=databricks&logoColor=white)
-
-- **플랫폼**: Azure Databricks, Unity Catalog
-- **데이터 처리**: PySpark, Pandas
-- **딥러닝**: PyTorch (Transformer, Multi-Head Attention)
-- **모델 관리**: MLflow (Model Registry, pyfunc)
-- **데이터셋**: MovieLens-32M, IMDB title.basics
-
----
-
-## 📊 1단계: 데이터 파이프라인 (`데이터 처리.ipynb`)
-
-### Medallion Architecture
-
-```
-[Bronze]  Unity Catalog에서 원시 데이터 로드
-    ↓     ratings, movies, tags, links (MovieLens-32M)
-    ↓     title_basics (IMDB)
-[Silver]  결측치 제거 / 중복 제거 / 평점 범위 필터링 (0~5)
-    ↓     영화 제목에서 연도 추출 (정규식)
-    ↓     IMDB 데이터로 연도 결측치 보완 (links ↔ title_basics JOIN)
-[Gold]    품질 기준 적용 → Train / Validation / Test 분할 → 저장
+```mermaid
+flowchart TD
+    A["MovieLens · IMDb"] --> B["Unity Catalog Table · Volume"]
+    B --> C["학습 데이터 구성 · BERT4Rec 학습"]
+    C --> D["MLflow 모델 등록"]
+    D --> E["Databricks Model Serving"]
+    F["Flask 웹"] --> E
+    E --> F
+    F --> G["SQL Warehouse · ID 매핑"]
+    G --> H["TMDB 영화 정보"]
+    H --> F
 ```
 
-### 주요 처리 내용
+본인은 데이터 제안·적재, 모델용 데이터 설계, BERT4Rec 구현 수정과 모델 서비스화를 담당했습니다. Flask 웹 구현은 팀원이 담당했으며, 모델 API와 웹을 연결하는 과정에 공동 참여했습니다.
 
-**1. 연도 결측치 보완**
-- `movies.title` 컬럼에서 정규식으로 연도 추출
-- 추출 실패 시 `links.imdbId` → `tconst` 변환 후 IMDB `title_basics.startYear`로 보완
-- 잔여 결측치는 수동 매핑으로 처리
+## 4. 본인 기여
 
-**2. 데이터 필터링 기준**
-- 영화별 평점 수 **10개 미만** 제외
-- 사용자별 리뷰 수 **20개 미만** 제외
+### 4.1 데이터 선정과 모델용 Gold 데이터 설계
 
-**3. Train / Validation / Test 분할 전략**
-- **Cold Start** 방식 채택: 사용자 단위 랜덤 분할 (6 : 2 : 2)
-- Databricks Unity Catalog `1dt_team8_databricks.final` 스키마에 최종 저장
+대용량 추천 데이터로 MovieLens를 제안했습니다. 다른 영화 데이터베이스의 ID와 연결할 수 있는 `links` 테이블이 있어 IMDb·TMDB 정보로 확장하기 적합하다고 판단했습니다.
 
----
+- MovieLens와 IMDb 데이터를 확보하고 Unity Catalog에 적재
+- 대용량 파일을 Volume에 먼저 업로드한 뒤 Table로 변환
+- 팀 그룹에 필요한 접근 권한을 부여하여 컴퓨팅 환경의 데이터 접근 문제 해결
+- 모델 학습·추론에 필요한 사용자, 영화, 평점, 시간 정보 중심으로 Gold 데이터 설계
 
-## 🤖 2단계: BERT4Rec + 장르 임베딩 모델 (`1dt048/`)
+BERT4Rec 입력을 구성할 때는 평점 **4점 이상**을 선호 이력으로 사용했습니다. 평점 기록의 시간순으로 시퀀스를 구성하고, 학습용 사용자는 선호 이력이 **4개 이상**, 테스트용 사용자는 **13개 이상**인 경우를 대상으로 했습니다.
 
-### 모델 개요
+관련 코드: [bert4rec-with-genres-embed.ipynb](1dt048/bert4rec-with-genres-embed.ipynb)
 
-[BERT4Rec(2019)](https://arxiv.org/pdf/1904.06690) 아키텍처를 기반으로, **장르 정보를 임베딩 레이어에 통합**하는 방식으로 확장했습니다.
+### 4.2 장르 정보를 활용한 BERT4Rec 구현 수정
 
-> 원본 참고: [constantfear/bert4rec](https://github.com/constantfear/bert4rec)
+SASRec, BERT4Rec, 장르 임베딩이 포함된 BERT4Rec 구현을 순서대로 검토한 뒤, 장르 정보를 사용하는 기존 구현을 프로젝트에 맞게 수정했습니다.
 
-### 커스텀 아키텍처
+모델은 영화 ID·위치·장르 임베딩을 합산하여 Transformer에 입력합니다. 장르 정보는 18차원 멀티핫 벡터를 신경망으로 변환해 사용합니다.
 
-```
- 입력 시퀀스 (영화 ID)
-        │
-        ├── TokenEmbedding        # 영화 ID → 벡터
-        ├── PositionalEmbedding   # 위치 정보 → 벡터
-        └── GenresEmbedding       # 장르 원-핫 → 2-layer MLP → 벡터
-                 │
-        BERTEmbedding (세 임베딩 합산)
-                 │
-        Transformer Encoder Blocks (×2)
-          └─ Multi-Head Self-Attention (heads=2)
-          └─ Position-wise Feed-Forward
-          └─ Layer Norm + Residual
-                 │
-        Linear Output → 추천 아이템 예측
-```
+| 수정 항목 | 내용 |
+|---|---|
+| 데이터 입력 | CSV 로딩을 Unity Catalog 테이블 조회 방식으로 변경 |
+| 선호 이력 구성 | 평점 4점 이상 필터와 사용자별 최소 이력 조건 적용 |
+| 추천·평가 구성 | Top-10 결과를 평가하도록 수정하고 Precision@10·Recall@10 추가 |
+| 출력 크기 | `[PAD]`, `[MASK]`를 포함하도록 출력 크기를 `num_items + 2`로 수정 |
+| 무작위 아이템 대체 | 대체 영화의 실제 장르 정보를 사용하도록 수정 |
+| 대체 후보 구성 | 입력 시퀀스에 이미 있는 영화를 무작위 대체 후보에서 제외 |
 
-**GenresEmbedding 구조**
-```python
-Linear(18 → 36) → ReLU → Linear(36 → hidden_units)
-```
-- 18개 장르 카테고리를 영화 임베딩과 동일한 차원(256)으로 변환
-- 아이템 임베딩, 위치 임베딩과 합산하여 컨텍스트 강화
+무작위 아이템 대체는 **MLM 학습 데이터를 만드는 과정**입니다. 대체 영화와 장르 정보를 일치시켜 학습 입력의 일관성을 확보했습니다.
 
-### 학습 설정 (config)
+원본 구현: [constantfear/bert4rec](https://github.com/constantfear/bert4rec)
 
-| 파라미터 | 값 |
-|---------|-----|
-| max_len | 80 |
-| hidden_units | 256 |
-| num_heads | 2 |
-| num_layers | 2 |
-| dropout_rate | 0.1 |
-| learning_rate | 0.001 |
-| batch_size | 64 |
-| num_epochs | 10 |
-| mask_prob | 0.15 |
+### 4.3 테스트 데이터 구성과 평가 로직 구현
 
-### MLM(Masked Language Model) 방식 학습
+별도의 테스트 테이블을 읽는 데이터 로더를 구성했습니다. 테스트 사용자별로 시간순 마지막 10개 영화를 정답으로 분리하고, 그 이전 이력을 모델 입력으로 사용했습니다.
 
-입력 시퀀스의 **15%** 토큰을 무작위 선택 후:
-- **80%** → `[MASK]` 토큰으로 대체
-- **10%** → 랜덤 아이템으로 대체
-- **10%** → 원본 유지 (오염 방지)
+| 구분 | 구성 |
+|---|---|
+| 학습 입력 | `train_data`와 `validation_data`를 합쳐 선호 이력 구성 |
+| 테스트 입력 | `test_data`에서 사용자별 마지막 10개를 제외한 이력 |
+| 테스트 정답 | 사용자별 시간순 마지막 10개 영화 |
+| 평가 후보 | 정답 영화 10개 + 무작위 미관측 영화 100개 |
+| 평가 지표 | NDCG@10, Hit@10, Precision@10, Recall@10 |
 
-장르 시퀀스도 동일한 방식으로 변환하여 아이템-장르 일관성 유지
+이 평가는 **샘플링한 후보군 내 순위 평가**입니다. 전체 영화 목록에서 상위 10개를 추천하는 평가와는 조건이 다릅니다.
 
-### 데이터 전처리 및 학습 데이터 구성
+### 4.4 MLflow 모델 등록과 웹 서비스 연동
 
-- **평점 필터링**: 평점 4.0 이상의 양질 상호작용 데이터만 학습에 활용
-- **시계열 분할**: 사용자별 시청 이력을 타임스탬프 기준으로 정렬 후 Train / Test 분할 적용
+프로젝트 기간에는 먼저 학습을 완료하고 Volume에 저장한 모델을 MLflow에 등록하여 서비스에 연결했습니다.
 
-### 성능 개선 과정
+- 학습 모델을 `mlflow.pyfunc` 형식으로 래핑
+- 영화 ID 인코더·디코더 등 추론에 필요한 파일을 함께 패키징
+- 입력 예시와 모델 시그니처, 실행 환경 의존성 정의
+- `bert4rec_v4` 이름으로 모델 등록
+- Databricks Model Serving Endpoint를 통해 Flask 웹과 연동
 
-기존 BERT4Rec 구현의 문제점을 발견하고 다음 두 가지 핵심 수정을 통해 추천 정확도를 크게 향상시켰습니다.
+서빙 환경을 구성하는 과정에서는 Python 및 패키지 버전 불일치로 배포가 실패했습니다. 로그를 확인하며 실행 환경의 의존성을 조정하여 모델을 서비스에 연결했습니다.
 
-**1. Output Layer 크기 버그 수정**
-- 출력 레이어의 크기 설정 오류를 디버깅하여 전체 아이템 어휘(vocabulary)에 대한 예측이 올바르게 이루어지도록 수정
+관련 코드:
 
-**2. Negative Sampling 로직 개선**
-- 기존: Negative Sample로 선택된 아이템의 장르를 무작위로 할당
-- 개선: 실제 대체 아이템의 장르 정보를 그대로 활용하여 아이템-장르 일관성 보장
-- 모델이 장르 임베딩을 의미 있게 학습할 수 있도록 개선
+- [모델 등록 노트북](1dt048/rertv4rec_model_mlflow_upload.ipynb)
+- [모델 로드·추론 확인 노트북](1dt048/mlflow_model_load_test.ipynb)
 
-### 성능 결과
+## 5. 개인 추가 실험 — MLflow 실험 추적
 
-| 지표 | 개선 전 | 개선 후 | 변화율 |
-|------|---------|---------|--------|
-| **NDCG@10** | 0.7689 | 0.8887 | **+15.6%** |
+모델 등록·서비스 연동 이후, Databricks의 MLflow 실험 추적 기능을 활용하기 위한 개인 추가 실험을 진행했습니다.
 
----
+학습·평가 로직은 유지하고 은닉 차원, 레이어 수, Attention Head 수, 학습률, 드롭아웃, 마스킹 비율 등의 하이퍼파라미터를 변경했습니다. 총 **10개 설정**의 학습 손실과 추천 지표를 실행별로 기록하고 비교했습니다.
 
-## 🚀 3단계: MLflow 모델 관리
+| 항목 | 내용 |
+|---|---|
+| 기록 대상 | 하이퍼파라미터, 학습 손실, 추천 평가 지표, 모델 |
+| 확인된 최고 NDCG@10 | **0.9022** |
+| 해당 실행의 Precision@10 / Recall@10 | **0.8769 / 0.8769** |
+| 평가 조건 | 정답 영화 10개와 무작위 미관측 영화 100개로 구성한 후보군 |
 
-### 모델 등록 (`rertv4rec_model_mlflow_upload.ipynb`)
-- 학습된 BERT4Rec 모델을 `mlflow.pyfunc` 포맷으로 래핑
-- MLflow Model Registry에 `bert4rec_v4` 이름으로 등록하여 버전 관리 체계화
-- 아이템 인코더/디코더(`.pkl`) 포함하여 end-to-end 추론 가능한 형태로 패키징
+수치는 보관 중인 MLflow 실행 화면 기준입니다. 동일한 평가 데이터를 반복 활용해 설정을 비교한 결과이며, 설정 선택 이후 별도의 독립 평가를 수행한 결과는 아닙니다.
 
-### 배포 환경 의존성 문제 해결
-- Databricks 서빙 환경과 학습 환경 간 **Python 버전 및 라이브러리 의존성 불일치**로 인한 배포 실패 발생
-- MLflow 로그 분석을 통해 충돌 패키지를 특정하고 `conda.yaml` / `requirements.txt` 수정으로 해결
-- 최종적으로 **Flask 기반 서비스에 모델을 성공적으로 탑재**하여 실시간 추천 API 제공
+여러 하이퍼파라미터를 함께 변경했으므로 개별 변경의 효과를 분리해 해석하지 않았습니다. 이 추가 작업에서는 성능 수치뿐 아니라 **실험 설정과 결과를 실행 단위로 남기고 비교하는 과정**을 경험했습니다.
 
-### 추론 테스트 (`mlflow_model_load_test.ipynb`)
-```python
-# 사용자의 시청 이력으로 영화 추천
-inference_data = pd.DataFrame({
-    "movie_history": [[4896, 1, 4993, 5952, 33794, ...]]
-})
-recommendations = loaded_model.predict(inference_data)
-```
+## 6. 기술 스택
 
----
+| 영역 | 기술 |
+|---|---|
+| 개발 언어 | Python |
+| 데이터 관리 | Azure Databricks, Unity Catalog Table·Volume |
+| 데이터 처리 | PySpark, Pandas, NumPy |
+| 모델 학습 | PyTorch, BERT4Rec |
+| 모델 관리·서빙 | MLflow, Databricks Model Serving |
+| 웹 서비스 | Flask, Databricks SQL Connector, REST API |
+| 데이터·외부 연동 | MovieLens 32M, IMDb, TMDB API |
 
-## 📈 데이터셋 규모
+데이터 조회·필터링에는 Spark를 사용하고, 이후 Pandas로 변환하여 PyTorch 학습 데이터를 구성했습니다.
 
-| 데이터 | 규모 |
-|--------|------|
-| MovieLens-32M ratings | 약 3,200만 건 |
-| MovieLens movies | 87,000+ 편 |
-| IMDB title.basics | 수백만 건 (연도 보완용) |
-| 최종 학습 사용자 수 | 필터링 후 약 20만+ 명 |
+## 7. 코드 및 시연 자료
 
----
+| 경로 | 내용 |
+|---|---|
+| [1dt048/bert4rec-with-genres-embed.ipynb](1dt048/bert4rec-with-genres-embed.ipynb) | 본인 담당: 데이터 로더, 모델, 학습·평가 |
+| [1dt048/rertv4rec_model_mlflow_upload.ipynb](1dt048/rertv4rec_model_mlflow_upload.ipynb) | 본인 담당: 추론 모델 패키징 및 MLflow 등록 |
+| [1dt048/mlflow_model_load_test.ipynb](1dt048/mlflow_model_load_test.ipynb) | 본인 담당: 등록 모델 로드 및 추론 확인 |
+| [데이터 처리.ipynb](데이터%20처리.ipynb) | 팀 공통 데이터 처리 코드 |
+| [1dt026/FLASK/app.py](1dt026/FLASK/app.py) | 팀원 담당: 웹 서버 및 모델·영화 정보 API 연동 |
 
-## 🌐 전체 팀 프로젝트 구조
+[서비스 시연 영상](https://youtu.be/nEBNvA5RPlM)
 
-```
-📦 MS_DS_Project1
-├── 📓 데이터 처리.ipynb         ← 담당 (데이터 파이프라인)
-├── 📁 1dt003/  XGBoost 추천 모델
-├── 📁 1dt011/  ALS 협업 필터링 & 군집화
-├── 📁 1dt026/  ALS + Content-Based Hybrid / Flask API
-└── 📁 1dt048/                  ← 담당 (BERT4Rec 모델)
-```
+공개 코드는 프로젝트 구현 기록입니다. 전체 실행에는 당시 Databricks 데이터 테이블·Volume, 학습 가중치, 등록 모델 및 외부 서비스 설정이 필요합니다.
 
+## 8. 한계 및 개선 방향
+
+- **평가 범위 확장:** 샘플링 후보군 평가 외에 전체 아이템 대상 평가를 추가하고, 하이퍼파라미터 선택용 검증 데이터와 최종 테스트 데이터를 분리할 필요가 있습니다.
+- **학습·추론 방식 정합성:** 현재 평가 코드는 입력 마지막 위치의 출력을 사용합니다. 추론 시 `[MASK]` 위치를 사용하는 방식과 비교하여 MLM 학습 목적과의 정합성을 검토할 필요가 있습니다.
+- **영화 특성 확장:** 장르 외에 감독·배우 등의 정보를 추가하고, 평점을 이진 필터 대신 선호 강도로 반영하는 방식을 검토할 수 있습니다.
+- **신규 영화 대응:** 학습되지 않은 영화에 대응하기 위한 콘텐츠 기반 추천이나 별도 후보 생성 방식이 필요합니다.
+- **재학습 자동화:** 데이터 갱신부터 학습·평가·배포까지 이어지는 자동화된 재학습 과정은 구현하지 않았습니다.
